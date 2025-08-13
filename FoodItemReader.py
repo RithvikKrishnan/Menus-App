@@ -20,7 +20,6 @@ import cv2
 import supervision as sv
 import torch
 
-# Your project's specific libraries
 
 
 #config_path = r"C:\Users\rithv\OneDrive\Desktop\PurdueDiningApp\venv\src\groundingdino\groundingdino\config/GroundingDINO_SwinT_OGC.py" #the r is to ensure the path is treated as a raw string
@@ -118,6 +117,17 @@ def classify_image_with_embeddings(img_path: str, k: int, text_embeddings, label
     return results
 
 
+# --- HELPER FUNCTION ---
+def _find_best_label_match(model_phrase: str, user_labels: list[str]) -> str | None:
+    """Finds the best user-provided label that is a substring of the model's phrase."""
+    best_match = ""
+    # Find the longest original label that is a substring of the model's output
+    for label in user_labels:
+        if label.lower() in model_phrase.lower() and len(label) > len(best_match):
+            best_match = label
+    return best_match if best_match else None
+
+
 def detect_and_draw(
     image_path: str,
     labels: list,
@@ -126,44 +136,33 @@ def detect_and_draw(
     iou_threshold=0.5
 ):
     """
-    Takes an image path and labels, runs Grounding DINO, applies Non-Max Suppression
-    to reduce overlapping boxes, and draws the filtered results.
+    Takes an image path and labels, runs Grounding DINO, matches phrases to labels,
+    applies Non-Max Suppression, and draws the filtered results.
 
     Args:
         image_path (str): The path to the input image.
         labels (list): A list of strings representing the object labels to detect.
-        box_threshold (float, optional): The confidence threshold for a box to be considered.
-                                          Defaults to 0.35.
-        text_threshold (float, optional): The confidence threshold for a label to match a box.
-                                           Defaults to 0.35.
-        iou_threshold (float, optional): The Intersection over Union threshold for NMS.
-                                         Boxes with IoU > threshold will be suppressed.
-                                         Defaults to 0.5.
+        box_threshold (float, optional): The confidence threshold for a box to be considered. Defaults to 0.35.
+        text_threshold (float, optional): The confidence threshold for a label to match a box. Defaults to 0.35.
+        iou_threshold (float, optional): The IoU threshold for NMS. Defaults to 0.5.
 
     Returns:
-        a list of labels detected in the image, or None if the model is not loaded or image loading fails.
+        A list of labels detected in the image, or an empty list on failure.
     """
     if model is None:
-        #print("Model is not loaded. Cannot perform detection.")
-        return None
-        
-    try:
-        image_source_pil, image_tensor = load_image(image_path)
-        # We need the original image dimensions for un-normalizing boxes
-        image_source_np = np.array(image_source_pil)
-        h, w, _ = image_source_np.shape
-    except FileNotFoundError:
-        #print(f"Error: Image not found at {image_path}")
-        return None
-    except Exception as e:
-        #print(f"Error loading image: {e}")
-        return None
+        print("Model is not loaded. Cannot perform detection.")
+        return []
 
-    text_prompt = " . ".join(labels).strip()
-    #print("text prompt: ", text_prompt)
+    try:
+        pil_image, image_tensor = load_image(image_path)
+        h, w, _ = np.array(pil_image).shape
+    except (FileNotFoundError, Exception) as e:
+        print(f"Error loading image '{image_path}': {e}")
+        return []
 
     # 1. Run the initial model prediction
-    boxes, logits, phrases = predict(
+    text_prompt = " . ".join(labels).strip()
+    raw_boxes, raw_logits, raw_phrases = predict(
         model=model,
         image=image_tensor,
         caption=text_prompt,
@@ -172,60 +171,53 @@ def detect_and_draw(
         device="cpu"
     )
 
-    #print(f"Found {len(boxes)} initial detections before NMS.")
-    #print("found phrases", phrases)
+    # 2. Pre-filter and Match Labels
+    # Only keep detections that match one of our desired labels.
+    # This is the key fix to prevent phantom boxes.
+    valid_detections = []
+    for box, logit, phrase in zip(raw_boxes, raw_logits, raw_phrases):
+        matched_label = _find_best_label_match(phrase, labels)
+        if matched_label:
+            # Store the box, its score, and the *actual label we want*
+            valid_detections.append({"box": box, "logit": logit, "label": matched_label})
 
-    # 2. Perform Non-Max Suppression (NMS)
-    if len(boxes) > 0:
+    if not valid_detections:
+        print("No objects matching the desired labels were found.")
+        # Create an empty image to display, as no annotations will be made
+        annotated_image_np = np.array(pil_image)
+    else:
+        # Unpack the valid detections for NMS
+        pre_nms_boxes = torch.stack([d["box"] for d in valid_detections])
+        pre_nms_logits = torch.tensor([d["logit"] for d in valid_detections])
+        pre_nms_labels = [d["label"] for d in valid_detections]
+
+        # 3. Perform Non-Max Suppression (NMS) on the valid detections
         # Un-normalize boxes to pixel coordinates for NMS
-        boxes_pixel = boxes * torch.Tensor([w, h, w, h])
-        
-        # Convert from center-width-height to xyxy format
+        boxes_pixel = pre_nms_boxes * torch.Tensor([w, h, w, h])
         boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes_pixel)
 
-        # Perform NMS
-        # torchvision.ops.nms returns the indices of the boxes to keep
-        nms_indices = torchvision.ops.nms(boxes_xyxy, logits, iou_threshold)
-        #print(f"Keeping {len(nms_indices)} boxes after NMS.")
+        # Get the indices of the boxes to keep
+        nms_indices = torchvision.ops.nms(boxes_xyxy, pre_nms_logits, iou_threshold)
+        #print(f"Found {len(valid_detections)} potential objects. Keeping {len(nms_indices)} after NMS.")
 
-        # Filter the results based on NMS indices
-        filtered_boxes = boxes[nms_indices]
-        filtered_logits = logits[nms_indices]
-        # Phrases is a list, so we need to index it differently
-        filtered_phrases = [phrases[i] for i in nms_indices]
-    else:
-        # If no boxes were detected initially, just use the empty lists
-        filtered_boxes, filtered_logits, filtered_phrases = boxes, logits, phrases
-    
-    final_phrases = []
-    for phrase in filtered_phrases:
-        best_match = ""
-        # Find the longest original label that is a substring of the model's output
-        for original_label in labels:
-            original_label = original_label.lower()
-            if original_label in phrase and len(original_label) > len(best_match):
-                #print(original_label, "is a substring of", phrase)
-                best_match = original_label
-        # If a match was found, use it. Otherwise, fall back to the raw phrase.
-        final_phrases.append(best_match)
-        if not best_match:
-            print(f"Warning: No matching label found for phrase '{phrase}'. Using raw phrase.")
-    print("Final phrases after matching:", final_phrases)
+        # Filter all our data using the NMS indices
+        final_boxes = pre_nms_boxes[nms_indices]
+        final_logits = pre_nms_logits[nms_indices]
+        final_phrases = [pre_nms_labels[i] for i in nms_indices]
+        
+        #print("Final detected labels:", final_phrases)
 
-    # 3. Annotate the image with the filtered results
-    annotated_image_np = annotate(
-        image_source=image_source_np,
-        boxes=filtered_boxes,
-        logits=filtered_logits,
-        phrases=final_phrases
-    )
-    
-    # Display the final image
-    cv2.imshow("Annotated Image (Non-Overlapping)", annotated_image_np)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows() 
-    
-    return final_phrases
+        # 4. Annotate the image with the final, filtered results
+        annotated_image_np = annotate(
+            image_source=np.array(pil_image),
+            boxes=final_boxes,
+            logits=final_logits,
+            phrases=final_phrases
+        )
+        cv2.imshow("Annotated Image (Non-Overlapping)", annotated_image_np)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows
+        return final_phrases
 import json
 
 def get_food_names_from_file(filename: str) -> list[str]:
@@ -360,10 +352,12 @@ shortlisted_labels = classify_image_with_embeddings(img_path = r"C:\Users\rithv\
 #print(shortlisted_labels)
 
 phrases = detect_and_draw(image_path = r"C:\Users\rithv\Downloads\chicken-fajita-marinade-4.jpg", labels = shortlisted_labels,
-                box_threshold = 0.35, text_threshold = 0.25)
-print(phrases)
-for phrase in phrases:
-    nutrition_info = get_nutrition_info(phrase)
-    print(nutrition_info)
-    #print(f"Detected phrase: {phrase}")
-    #print(f"Nutrition info: {nutrition_info}")
+                box_threshold = 0.25, text_threshold = 0.25)
+#print(phrases)
+
+if phrases:
+    for phrase in phrases:
+        nutrition_info = get_nutrition_info(phrase)
+        print(nutrition_info)
+else:
+    print("No phrases detected or matched.")
