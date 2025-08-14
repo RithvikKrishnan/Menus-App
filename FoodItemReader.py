@@ -7,14 +7,28 @@ import os
 import numpy as np
 from groundingdino.util import box_ops
 from groundingdino.util.inference import load_model, load_image, predict, annotate
+import groundingdino.datasets.transforms as T
+import streamlit as st
+
+
+
 
 device = "cpu"
 
-# Load the CLIP model and the necessary image preprocessor
-clip_model, preprocess = clip.load("ViT-B/32", device=device)
-#print(f"CLIP model loaded on device: {device}")
+@st.cache_resource # Cache the model to avoid reloading on every run
+def load_clip_model():
+    """
+    Loads the CLIP model and returns it along with the image preprocessor.
+    """
+    try:
+        clip_model, preprocess = clip.load("ViT-B/32", device=device)
+        print(f"CLIP model loaded on device: {device}")
+        return clip_model, preprocess
+    except Exception as e:
+        print(f"Error loading CLIP model: {e}")
+        return None, None
 
-
+clip_model, preprocess = load_clip_model()
 # Third-Party Libraries
 import cv2
 import supervision as sv
@@ -25,14 +39,26 @@ import torch
 #config_path = r"C:\Users\rithv\OneDrive\Desktop\PurdueDiningApp\venv\src\groundingdino\groundingdino\config/GroundingDINO_SwinT_OGC.py" #the r is to ensure the path is treated as a raw string
 #weights_path = r"C:\Users\rithv\OneDrive\Desktop\PurdueDiningApp\groundingdino_swint_ogc.pth" 
 
-config_path = r"GroundingDINO\groundingdino\config\GroundingDINO_SwinT_OGC.py"
-weights_path = r"groundingdino_swint_ogc.pth"
-model = load_model(config_path, weights_path, device = device)
+@st.cache_resource # Cache the model to avoid reloading on every run
+def load_grounding_dino_model():
+    """
+    Loads the Grounding DINO model and returns it.
+    """
+    try:
+        config_path = r"GroundingDINO\groundingdino\config\GroundingDINO_SwinT_OGC.py"
+        weights_path = r"groundingdino_swint_ogc.pth"
+        model = load_model(config_path, weights_path, device=device)
+        print("Grounding DINO model loaded on device:", device)
+        return model
+    except Exception as e:
+        print(f"Error loading Grounding DINO model: {e}")
+        return None
+model = load_grounding_dino_model()
 #print("Grounding DINO model loaded on device:", device)
 
 EMBEDDING_CACHE_PATH = "./clip_text_embeddings.pt" # The file where embeddings will be stored
 
-
+@st.cache_resource
 def generate_text_embeddings(labels: list):
   """
   Takes a list of text labels and returns their CLIP embeddings.
@@ -80,13 +106,13 @@ def generate_text_embeddings(labels: list):
   
   return torch.stack(ordered_embeddings)
 
-def classify_image_with_embeddings(img_path: str, k: int, text_embeddings, labels: list):
+def classify_image_with_embeddings(pil_image: Image.Image, k: int, text_embeddings, labels: list):
     """
     Classifies an image against a set of pre-computed text embeddings.
     Only returns labels with confidence >= 0.35.
 
     Args:
-        img_path: Path to the input image file.
+        pil_image: The input image as a PIL Image object.
         k: Number of top labels to consider.
         text_embeddings: Pre-computed tensor of embeddings for the labels.
         labels: Original list of string labels.
@@ -95,7 +121,7 @@ def classify_image_with_embeddings(img_path: str, k: int, text_embeddings, label
         A list of the top labels (strings) with confidence >= 0.35
     """
     try:
-        image = preprocess(Image.open(img_path)).unsqueeze(0).to(device)
+        image = preprocess(pil_image).unsqueeze(0).to(device)
     except Exception as e:
         return f"Error processing image: {e}"
 
@@ -126,10 +152,39 @@ def _find_best_label_match(model_phrase: str, user_labels: list[str]) -> str | N
         if label.lower() in model_phrase.lower() and len(label) > len(best_match):
             best_match = label
     return best_match if best_match else None
+import tempfile
+def process_pil_image(pil_image: Image.Image):
+    """
+    Takes a PIL Image, saves it temporarily, processes it with
+    groundingdino.util.inference.load_image(), cleans up the temporary
+    file, and returns the results.
 
+    Args:
+        pil_image: A PIL.Image.Image object.
+
+    Returns:
+        A tuple containing the two return values from the load_image function.
+    """
+    temp_file_path = None
+    try:
+        # Create a temporary file with a .png extension
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+            temp_file_path = temp_file.name
+            # Save the PIL image to the temporary file. [11, 14]
+            pil_image.save(temp_file_path, format='PNG')
+
+        # Use the temporary file path with the load_image function. [12, 15]
+        image_np, image_tensor = load_image(temp_file_path)
+
+        return image_np, image_tensor
+
+    finally:
+        # Ensure the temporary file is deleted after use. [2, 4, 5]
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
 
 def detect_and_draw(
-    image_path: str,
+    pil_image: Image.Image, # <-- Changed from image_path
     labels: list,
     box_threshold=0.35,
     text_threshold=0.35,
@@ -149,19 +204,26 @@ def detect_and_draw(
     Returns:
         A list of labels detected in the image, or an empty list on failure.
     """
+    print("Starting detection process")
     if model is None:
         print("Model is not loaded. Cannot perform detection.")
         return []
-
+    print("line 186")
     try:
-        pil_image, image_tensor = load_image(image_path)
-        h, w, _ = np.array(pil_image).shape
-    except (FileNotFoundError, Exception) as e:
-        print(f"Error loading image '{image_path}': {e}")
+        # We already have the PIL image, so we just pass it to load_image.
+        # You might need to adjust `load_image` to accept a PIL image instead of a path.
+        # Assuming `load_image` is modified like this: `def load_image(pil_img): ...`
+        image_np, image_tensor = process_pil_image(pil_image)
+
+        #h, w, _ = np.array(pil_image).shape
+        h, w = image_np.shape[:2]  # Get height and width from the numpy array
+    except Exception as e:
+        print(f"Error loading image: {e}")
         return []
 
     # 1. Run the initial model prediction
     text_prompt = " . ".join(labels).strip()
+    print("line 199")
     raw_boxes, raw_logits, raw_phrases = predict(
         model=model,
         image=image_tensor,
@@ -171,6 +233,7 @@ def detect_and_draw(
         device="cpu"
     )
 
+    print("Raw phrases detected:", raw_phrases)
     # 2. Pre-filter and Match Labels
     # Only keep detections that match one of our desired labels.
     # This is the key fix to prevent phantom boxes.
@@ -214,12 +277,15 @@ def detect_and_draw(
             logits=final_logits,
             phrases=final_phrases
         )
-        cv2.imshow("Annotated Image (Non-Overlapping)", annotated_image_np)
+        """cv2.imshow("Annotated image", annotated_image_np)
         cv2.waitKey(0)
-        cv2.destroyAllWindows
+        cv2.destroyAllWindows()"""
+        annotated_image_np = cv2.cvtColor(annotated_image_np, cv2.COLOR_BGR2RGB)
+        st.image(annotated_image_np, caption="Detected Objects", use_column_width=True)
         return final_phrases
 import json
 
+@st.cache_data # Cache the food names to avoid re-reading the file on every run
 def get_food_names_from_file(filename: str) -> list[str]:
     """
     Reads a master food database JSON file and extracts all food names.
@@ -347,17 +413,28 @@ start_time = time.perf_counter()
 embeddings = generate_text_embeddings(all_labels)
 end_time = time.perf_counter()
 #print(end_time - start_time)
-shortlisted_labels = classify_image_with_embeddings(img_path = r"C:\Users\rithv\Downloads\chicken-fajita-marinade-4.jpg", k = 10,
-                                                    text_embeddings = embeddings, labels = all_labels)
-#print(shortlisted_labels)
+print("line 354")
 
-phrases = detect_and_draw(image_path = r"C:\Users\rithv\Downloads\chicken-fajita-marinade-4.jpg", labels = shortlisted_labels,
-                box_threshold = 0.25, text_threshold = 0.25)
-#print(phrases)
 
-if phrases:
-    for phrase in phrases:
-        nutrition_info = get_nutrition_info(phrase)
-        print(nutrition_info)
-else:
-    print("No phrases detected or matched.")
+
+st.title("Food Item Classifier")
+st.write("Upload an image of food to classify and get nutritional information.")
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+image = Image.open(uploaded_file) if uploaded_file else None #if statement is needed because uploaded_file will initially be None
+print("line 360")
+if image:
+    shortlisted_labels = classify_image_with_embeddings(pil_image = image, k = 10,
+                                                        text_embeddings = embeddings, labels = all_labels)
+    print(shortlisted_labels if shortlisted_labels else "No labels matched.")
+    phrases = detect_and_draw(pil_image = image, labels = shortlisted_labels,
+                    box_threshold = 0.25, text_threshold = 0.25)
+    print("line 366")
+    if phrases:
+        for phrase in phrases:
+            nutrition_info = get_nutrition_info(phrase)
+            print(nutrition_info)
+            st.write(nutrition_info)
+
+
+
+
