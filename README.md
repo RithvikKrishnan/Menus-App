@@ -1,6 +1,47 @@
 # Menus-App
-This app takes in an image of a plate of food, identifies and segments the food in the plate, and outputs the nutritional information of the plate based on data taken from Purdue's dining services. The data collection code, which is in this repository, makes 20 threads of "scrapers" to crawl through Purdue's dining API and store that data in a JSON file. As of the time I am writing this, there are over 1000 food items and their corresponding nutritional data inside this JSON file. The item reading code employs two models: it uses the CLIP model by OpenAI to shortlist the 1000 food labels into the 10 foods most likely to be in the image, and then the GroundingDINO model attempts to identify those 10 foods and boxes & annotates the food with sufficient confidence. 
 
-The CLIP model is used first because the only expensive procedure is the generation of the label embeddings, which have already been stored. It provides an extremely fast shortlisting of the foods on the plate, but is unable to give information on their location and is slightly error-prone. The GroundingDINO, which is significantly slower, will draw the boxes and will take significantly less time to draw boxes for 10 labels rather than the original 1000. Note that this last step usually takes 15-20 seconds, as even the lightest GroundingDINO model that is used here is computationally intensive. 
+This app takes in an image of a plate of food, identifies and segments the food in the plate, and outputs the nutritional information of the plate based on data taken from Purdue's dining services.
 
-As of right now, the best way to use this is to download this repository and type the command "pip install -r requirements.txt" in the terminal before pressing enter. Then the command "streamlit run FoodItemReader.py" in the terminal and enter to run the app, note that initially loading time will be 15-20 seconds because the CLIP and GroundingDINO models will take time to be loaded into memory. 
+**(It would be awesome to add a screenshot or a GIF of the app working right here!)**
+
+### How It Works: The Two-Model Approach
+
+The item reading code employs two models to balance speed and accuracy:
+
+1.  **First, a Quick Shortlist with CLIP:** The app uses OpenAI's CLIP model to shortlist the 1000+ food labels down to the 10 foods most likely to be in the image. This is extremely fast because the only expensive part—generating label embeddings—is already done and stored. While it's great for quickly narrowing things down, it can't tell you *where* the food is on the plate.
+
+2.  **Then, Bounding Boxes with GroundingDINO:** With that shortlist of 10 labels, the much slower GroundingDINO model takes over. Its job is to find those items in the image, draw boxes around them, and provide the final annotation. This step takes significantly less time than having it search for all 1000+ original labels.
+
+> **Note:** This second step usually takes 15-20 seconds, as even the lightest GroundingDINO model used here is computationally intensive.
+
+### The Data
+
+The nutritional data comes from a JSON file with over 1000 food items. The data collection code, which is also in this repository, makes 20 threads of "scrapers" to crawl through Purdue's dining API and store that data.
+
+### How to Use It
+
+As of right now, the best way to use this is to clone this repository and run it locally.
+
+1.  Clone the repository and move into the directory:
+    ```sh
+    git clone https://github.com/RithvikKrishnan/Menus-App.git
+    cd Menus-App
+    ```
+
+2.  Install the required packages:
+    ```sh
+    pip install -r requirements.txt
+    ```
+
+3.  Run the app with Streamlit:
+    ```sh
+    streamlit run FoodItemReader.py
+    ```
+    > **Heads up:** The initial loading time will be 15-20 seconds because the CLIP and GroundingDINO models need to be loaded into memory.
+
+### What's Next?
+
+In the future, I intend to:
+*   Deploy this and make it publicly accessible.
+*   Find ways to increase accuracy without increasing computational requirements.
+*   Periodically run my scraper and update the database (though this can be done locally if you have the file).
