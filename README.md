@@ -2,7 +2,7 @@
 
 This app takes in an image of a plate of food, identifies and segments the food in the plate, and outputs the nutritional information of the plate based on data taken from Purdue's dining services.
 
-So, check it out. You give the app a picture of your food, and it figures out what's on the plate, like this:
+This is an example annotated image. 
 
 ![Food Segmentation Demo](https://github.com/RithvikKrishnan/Menus-App/blob/7d9c990172b40384ed1bf44e62e8ca383ca525af/Demo1.png)
 
