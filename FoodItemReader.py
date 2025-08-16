@@ -7,7 +7,6 @@ import os
 import numpy as np
 from groundingdino.util import box_ops
 from groundingdino.util.inference import load_model, load_image, predict, annotate
-import groundingdino.datasets.transforms as T
 import streamlit as st
 
 
@@ -31,13 +30,8 @@ def load_clip_model():
 clip_model, preprocess = load_clip_model()
 # Third-Party Libraries
 import cv2
-import supervision as sv
 import torch
 
-
-
-#config_path = r"C:\Users\rithv\OneDrive\Desktop\PurdueDiningApp\venv\src\groundingdino\groundingdino\config/GroundingDINO_SwinT_OGC.py" #the r is to ensure the path is treated as a raw string
-#weights_path = r"C:\Users\rithv\OneDrive\Desktop\PurdueDiningApp\groundingdino_swint_ogc.pth" 
 
 @st.cache_resource # Cache the model to avoid reloading on every run
 def load_grounding_dino_model():
@@ -152,6 +146,8 @@ def _find_best_label_match(model_phrase: str, user_labels: list[str]) -> str | N
         if label.lower() in model_phrase.lower() and len(label) > len(best_match):
             best_match = label
     return best_match if best_match else None
+
+
 import tempfile
 def process_pil_image(pil_image: Image.Image):
     """
@@ -283,7 +279,6 @@ def detect_and_draw(
         annotated_image_np = cv2.cvtColor(annotated_image_np, cv2.COLOR_BGR2RGB)
         st.image(annotated_image_np, caption="Detected Objects", use_column_width=True)
         return final_phrases
-import json
 
 @st.cache_data # Cache the food names to avoid re-reading the file on every run
 def get_food_names_from_file(filename: str) -> list[str]:
@@ -323,82 +318,80 @@ def get_food_names_from_file(filename: str) -> list[str]:
         return []
         
     return food_names
+
+
+import json
 def get_nutrition_info(food_name: str, db_filepath: str = "master_food_database.json") -> str:
     """
-    Searches a food database JSON file for an item by name and returns its
-    nutritional information in a human-readable format.
+    Searches a food database for an item and returns its nutritional info
+    as a Markdown-formatted string, suitable for display in Streamlit.
 
     Args:
         food_name (str): The name of the food to search for (case-insensitive).
         db_filepath (str): The path to the master food database JSON file.
 
     Returns:
-        str: A formatted string with the nutritional information, or a
-             message if the food is not found or an error occurs.
+        A Markdown-formatted string with the nutritional information,
+        an error message, or an empty string if the food is not found.
     """
-    # --- 1. Load the Database File ---
+    # 1. Load and validate the database file
     try:
         with open(db_filepath, 'r', encoding='utf-8') as f:
             food_db = json.load(f)
     except FileNotFoundError:
-        return f"Error: Database file not found at '{db_filepath}'"
+        return f"**Error:** Database file not found at `{db_filepath}`."
     except json.JSONDecodeError:
-        return f"Error: Could not parse the JSON file. It might be corrupted or empty."
+        return "**Error:** Could not parse the JSON file. It might be corrupted."
 
-    # --- 2. Find the Food Item by Name ---
-    # The database is a dict of {ID: data}, so we iterate through the values.
+    # 2. Find the food item in the database (case-insensitive search)
     found_item = None
     for item_data in food_db.values():
-        # Using .get() is safer in case an item is missing a "Name" key
-        # Using .lower() makes the search case-insensitive
+        # Use .get() for safety in case "Name" key is missing
         if item_data.get("Name", "").lower() == food_name.lower():
             found_item = item_data
-            break  # Stop searching once we find the first match
+            break  # Exit loop once the first match is found
 
     if not found_item:
-        #return f"Could not find a food item named '{food_name}' in the database."
-        return ""
+        return ""  # Return empty string if no match is found
 
-    # --- 3. Format the Output String ---
-    # We will build a list of lines and join them at the end.
+    # 3. Build the Markdown-formatted output string
     output_lines = []
 
-    # --- Basic Info ---
-    output_lines.append(f"--- Nutrition for: {found_item['Name']} ---")
-    output_lines.append(f"ID: {found_item.get('ID', 'N/A')}")
-    output_lines.append(f"Ingredients: {found_item.get('Ingredients', 'Not available')}")
-    output_lines.append("=" * 40) # Separator
+    # --- Title and Ingredients ---
+    output_lines.append(f"### **{found_item.get('Name', 'Unknown Item')}**")
+    if ingredients := found_item.get('Ingredients'):
+        output_lines.append(f"**Ingredients:** {ingredients}")
+    output_lines.append("---")
 
-    # --- Nutrition Details ---
-    output_lines.append("Nutrition Facts:")
-    if not found_item.get("NutritionReady") or not found_item.get("Nutrition"):
-        output_lines.append("  - Nutrition information is not available for this item.")
-    else:
+    # --- Nutrition Facts Section ---
+    output_lines.append("#### Nutrition Facts")
+    if found_item.get("NutritionReady") and found_item.get("Nutrition"):
         for nutrient in found_item["Nutrition"]:
             name = nutrient.get("Name", "Unknown")
-            # Use LabelValue for a clean display (e.g., "21g" instead of 21.0)
             value = nutrient.get("LabelValue", "N/A")
             daily_value = nutrient.get("DailyValue")
 
-            line = f"  - {name:<20} {value}" # Left-align name for clean columns
+            line = f"- **{name}:** {value}"
             if daily_value:
-                line += f" ({daily_value} DV)" # Add daily value if it exists
+                line += f" (*{daily_value} DV*)"
             output_lines.append(line)
+    else:
+        output_lines.append("*Nutrition information is not available.*")
 
-    output_lines.append("=" * 40) # Separator
-
-    # --- Allergens and Dietary Info ---
-    output_lines.append("Allergens & Dietary Tags:")
-    # Filter the list to only include allergens/tags that are 'true'
+    # --- Allergens Section ---
+    output_lines.append("\n---") # Add a separator with space
+    output_lines.append("#### Allergens & Dietary Tags")
+    
     active_allergens = [
-        allergen["Name"] for allergen in found_item.get("Allergens", []) if allergen.get("Value")
+        allergen["Name"]
+        for allergen in found_item.get("Allergens", [])
+        if allergen.get("Value")
     ]
 
     if active_allergens:
-        output_lines.append(f"  - Contains: {', '.join(active_allergens)}")
+        output_lines.append(f"**Contains:** {', '.join(active_allergens)}")
     else:
-        output_lines.append("  - No specific allergens or tags listed.")
-
+        output_lines.append("*No specific allergens or tags are listed.*")
 
     return "\n".join(output_lines)
 all_labels = get_food_names_from_file("master_food_database.json")
@@ -407,12 +400,10 @@ for i in range(len(all_labels)):
     label = label.strip().strip(".")
     all_labels[i] = label
 
-#print("Total food items loaded:", len(all_labels))
 import time
 start_time = time.perf_counter()
 embeddings = generate_text_embeddings(all_labels)
 end_time = time.perf_counter()
-#print(end_time - start_time)
 print("line 354")
 
 
