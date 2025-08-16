@@ -6,9 +6,11 @@ So, check it out. You give the app a picture of your food, and it figures out wh
 
 ![Food Segmentation Demo](https://github.com/RithvikKrishnan/Menus-App/blob/7d9c990172b40384ed1bf44e62e8ca383ca525af/Demo1.png)
 
-Then, it spits out all the nutritional info for you. Pretty sick, right?
+The labeling is hard to see because it's in the corner, but it is there. Afterwards, it writes out the corresponding nutritional information.
 
-![Nutritional Info Demo](assets/Demo2.png)
+![Nutritional Info Demo](https://github.com/RithvikKrishnan/Menus-App/blob/3159204516bf4ce3bf76ac055b96142e06560e3f/Demo2.png)
+
+**Note that the nutritional information above may not be reflective of cavatappi pasta in other contexts, as it is solely based on data taken from Purdue University. 
 
 ### How It Works: The Two-Model Approach
 
