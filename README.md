@@ -4,7 +4,7 @@ This app takes in an image of a plate of food, identifies and segments the food 
 
 So, check it out. You give the app a picture of your food, and it figures out what's on the plate, like this:
 
-![Food Segmentation Demo](assets/Demo1.png)
+![Food Segmentation Demo]([assets/Demo1.png](https://github.com/RithvikKrishnan/Menus-App/blob/7d9c990172b40384ed1bf44e62e8ca383ca525af/Demo1.png))
 
 Then, it spits out all the nutritional info for you. Pretty sick, right?
 
