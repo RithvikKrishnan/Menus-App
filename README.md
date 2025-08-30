@@ -28,29 +28,4 @@ The nutritional data comes from a JSON file with over 1000 food items. The data 
 
 ### How to Use It
 
-As of right now, the best way to use this is to clone this repository and run it locally.
-
-1.  Clone the repository and move into the directory:
-    ```sh
-    git clone https://github.com/RithvikKrishnan/Menus-App.git
-    cd Menus-App
-    ```
-
-2.  Install the required packages:
-    ```sh
-    pip install -r requirements.txt
-    ```
-
-3.  Run the app with Streamlit:
-    ```sh
-    streamlit run FoodItemReader.py
-    ```
-    > **Heads up:** The initial loading time will be 15-20 seconds because the CLIP and GroundingDINO models need to be loaded into memory.
-
-### What's Next?
-
-In the future, I intend to:
-*   Deploy this and make it publicly accessible.
-*   Find ways to increase accuracy without increasing computational requirements.
-*   Periodically run my scraper and update the database (though this can be done locally if you have the file).
-  
+This is not yet usable in other machines.
