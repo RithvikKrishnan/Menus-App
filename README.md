@@ -46,6 +46,7 @@ As of right now, the best way to use this is to clone this repository and run it
     streamlit run FoodItemReader.py
     ```
     > **Heads up:** The initial loading time will be 15-20 seconds because the CLIP and GroundingDINO models need to be loaded into memory.
+   Also note that depending on whether or not you have the GroundingDINO model on your machine, trying to install the requirements file may have errors that prevent execution. I am yet unable to figure out this issue, as I suspect it's with the packaging system of GroundingDINO. This error will be fixed as soon as possible. The screenshots above provide a demonstration.
 
 ### What's Next?
 
@@ -53,3 +54,4 @@ In the future, I intend to:
 *   Deploy this and make it publicly accessible.
 *   Find ways to increase accuracy without increasing computational requirements.
 *   Periodically run my scraper and update the database (though this can be done locally if you have the file).
+  
